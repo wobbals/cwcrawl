@@ -1,0 +1,13 @@
+# crawler will not go anywhere else
+allowed_domains:
+  - icharlotte.com
+# lower case search terms only
+search_terms:
+  - hemp
+  - oil
+  - sustainable
+  - account
+  - henry
+  - boulder
+# where to start scanning
+entrypoint: https://icharlotte.com
