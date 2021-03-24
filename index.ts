@@ -58,20 +58,83 @@ const c = new Crawler({
           c.queue(linkURL.href);
         }
       });
-    }
-    const body = res.body.toString().toLowerCase();
-    let line = `${uri.href},`;
-    SEARCH_TERMS.forEach((term) => {
-      const count = (body.match(new RegExp(term, "g")) || []).length;
-      if (body.includes(term)) {
-        console.log(`  ${uri.pathname} has ${term} (n=${count})`);
+
+      const body = res.body.toString().toLowerCase();
+      let line = `${uri.href},`;
+      let stream: fs.WriteStream | null = null;
+      SEARCH_TERMS.forEach((term) => {
+        const count = (body.match(new RegExp(term, "g")) || []).length;
+        if (body.includes(term)) {
+          if (!stream) {
+            stream = createReport((uri as unknown) as URL);
+          }
+          console.log(`  ${uri.pathname} has ${term} (n=${count})`);
+          stream.write(`  term hit: ${term} (n=${count})\n`);
+          inspectDocument(res.$.root(), term, stream);
+        }
+        line += `${count},`;
+      });
+      line += "\n";
+      fs.appendFileSync(OF, line, { encoding: "utf8" });
+      if (stream) {
+        (stream as fs.WriteStream).end("\n");
       }
-      line += `${count},`;
-    });
-    line += "\n";
-    fs.appendFileSync(OF, line, { encoding: "utf8" });
+    }
     done();
   },
 });
 
+function createReport(url: URL): fs.WriteStream {
+  const safePath = url.pathname.replace(/\//g, "-");
+  const stream = fs.createWriteStream(`reports/REPORT${safePath}.txt`, {
+    encoding: "utf8",
+  });
+  stream.write(`Visited ${url.href}\n`);
+  return stream;
+}
+
 c.queue(ENTRYPOINT);
+
+function inspectDocument(
+  cheerio: cheerio.Cheerio,
+  term: string,
+  stream: fs.WriteStream
+): void {
+  cheerio.each((i, element) => {
+    const node = cheerio.get(i);
+    findNode(node, term, stream);
+  });
+}
+
+function findNode(node: any, term: string, stream: fs.WriteStream): void {
+  if (node.children && node.children.length > 0) {
+    node.children.forEach((child: any) => {
+      findNode(child, term, stream);
+    });
+  }
+  // console.log(node);
+  const serializable = JSON.stringify({
+    text: node.text,
+    attribs: node.attribs,
+    data: node.data?.trim(),
+  });
+  if (!serializable.toLowerCase().includes(term)) {
+    return;
+  }
+  let type = node.type;
+  let name = node.name;
+  let data = serializable;
+  if (node.type === "text") {
+    type = node.parent.type;
+    name = node.parent.name;
+    data = node.data.trim();
+    // const parent = {
+    //   type: node.parent.type,
+    //   name: node.parent.name,
+    //   attribs: node.parent.attribs,
+    //   data: node.parent.data?.trim(),
+    // };
+    // console.log(parent);
+  }
+  stream.write(`    ${name} ${type}: ${data}\n`);
+}
